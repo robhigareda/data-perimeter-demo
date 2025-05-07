@@ -1,0 +1,342 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Data Perimeter Demo - Part 2: EC2 Instances and S3 Buckets'
+
+Parameters:
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+    Description: Latest Amazon Linux 2023 AMI from SSM Parameter Store
+    
+  # Parameters passed from the first stack
+  PrimaryVPCId:
+    Type: String
+    Description: ID of the Primary VPC
+  
+  PrimaryVPCCidr:
+    Type: String
+    Description: CIDR block of the Primary VPC
+  
+  PrimaryPrivateSubnet1Id:
+    Type: String
+    Description: ID of the first private subnet in the Primary VPC
+  
+  PrimaryPrivateSubnet2Id:
+    Type: String
+    Description: ID of the second private subnet in the Primary VPC
+    
+  SecondaryVPCId:
+    Type: String
+    Description: ID of the Secondary VPC
+  
+  SecondaryVPCCidr:
+    Type: String
+    Description: CIDR block of the Secondary VPC
+  
+  SecondaryPublicSubnetId:
+    Type: String
+    Description: ID of the public subnet in the Secondary VPC
+
+Resources:
+  #############################################
+  # IAM ROLES AND INSTANCE PROFILES
+  #############################################
+  
+  # IAM Role for Primary EC2 Instances
+  PrimaryEC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Path: /
+
+  # Instance Profile for Primary EC2 Instances
+  PrimaryEC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref PrimaryEC2Role
+
+  # IAM Role for Secondary EC2 Instance
+  SecondaryEC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Path: /
+
+  # Instance Profile for Secondary EC2 Instance
+  SecondaryEC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref SecondaryEC2Role
+
+  #############################################
+  # S3 BUCKETS
+  #############################################
+  
+  # S3 Bucket 1 - Protected by Data Perimeter
+  ProtectedBucket1:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join 
+        - '-'
+        - - 'pb1'
+          - !Select [2, !Split ["/", !Ref "AWS::StackId"]]
+          - !Ref "AWS::AccountId"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # S3 Bucket 2 - Protected by Data Perimeter
+  ProtectedBucket2:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join 
+        - '-'
+        - - 'pb2'
+          - !Select [2, !Split ["/", !Ref "AWS::StackId"]]
+          - !Ref "AWS::AccountId"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # IAM Policy for Primary EC2 Instances to access S3 buckets
+  PrimaryS3AccessPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: PrimaryS3Access
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+              - s3:ListAllMyBuckets
+            Resource:
+              - !GetAtt ProtectedBucket1.Arn
+              - !Sub "${ProtectedBucket1.Arn}/*"
+              - !GetAtt ProtectedBucket2.Arn
+              - !Sub "${ProtectedBucket2.Arn}/*"
+              - "arn:aws:s3:::*"
+      Roles:
+        - !Ref PrimaryEC2Role
+
+  # IAM Policy for Secondary EC2 Instance to attempt to access S3 buckets
+  SecondaryS3AccessPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SecondaryS3Access
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+              - s3:ListAllMyBuckets
+            Resource:
+              - !GetAtt ProtectedBucket1.Arn
+              - !Sub "${ProtectedBucket1.Arn}/*"
+              - !GetAtt ProtectedBucket2.Arn
+              - !Sub "${ProtectedBucket2.Arn}/*"
+              - "arn:aws:s3:::*"
+      Roles:
+        - !Ref SecondaryEC2Role
+
+  #############################################
+  # SECURITY GROUPS
+  #############################################
+  
+  # Security Group for Primary EC2 Instances
+  PrimaryEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Primary EC2 instances
+      VpcId: !Ref PrimaryVPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: -1
+          CidrIp: !Ref PrimaryVPCCidr
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  # Security Group for Secondary EC2 Instance
+  SecondaryEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Secondary EC2 instance
+      VpcId: !Ref SecondaryVPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: -1
+          CidrIp: !Ref SecondaryVPCCidr
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  #############################################
+  # EC2 INSTANCES
+  #############################################
+  
+  # Primary EC2 Instance 1
+  PrimaryEC2Instance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PrimaryPrivateSubnet1Id
+      SecurityGroupIds:
+        - !Ref PrimaryEC2SecurityGroup
+      IamInstanceProfile: !Ref PrimaryEC2InstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y aws-cli jq
+          echo "This is Primary EC2 Instance 1 in the Protected VPC" > /home/ec2-user/instance-info.txt
+          aws s3 cp /home/ec2-user/instance-info.txt s3://${ProtectedBucket1}/primary-instance1.txt
+          echo "Testing access to protected buckets..." > /home/ec2-user/test-results.txt
+          aws s3 ls s3://${ProtectedBucket1} >> /home/ec2-user/test-results.txt 2>&1
+          aws s3 ls s3://${ProtectedBucket2} >> /home/ec2-user/test-results.txt 2>&1
+      Tags:
+        - Key: Name
+          Value: Primary-EC2-1
+
+  # Primary EC2 Instance 2
+  PrimaryEC2Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PrimaryPrivateSubnet2Id
+      SecurityGroupIds:
+        - !Ref PrimaryEC2SecurityGroup
+      IamInstanceProfile: !Ref PrimaryEC2InstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y aws-cli jq
+          echo "This is Primary EC2 Instance 2 in the Protected VPC" > /home/ec2-user/instance-info.txt
+          aws s3 cp /home/ec2-user/instance-info.txt s3://${ProtectedBucket2}/primary-instance2.txt
+          echo "Testing access to protected buckets..." > /home/ec2-user/test-results.txt
+          aws s3 ls s3://${ProtectedBucket1} >> /home/ec2-user/test-results.txt 2>&1
+          aws s3 ls s3://${ProtectedBucket2} >> /home/ec2-user/test-results.txt 2>&1
+      Tags:
+        - Key: Name
+          Value: Primary-EC2-2
+
+  # Secondary EC2 Instance (outside data perimeter)
+  SecondaryEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref SecondaryPublicSubnetId
+      SecurityGroupIds:
+        - !Ref SecondaryEC2SecurityGroup
+      IamInstanceProfile: !Ref SecondaryEC2InstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y aws-cli jq
+          echo "This is Secondary EC2 Instance in the Non-Protected VPC" > /home/ec2-user/instance-info.txt
+          echo "Testing access to protected buckets..." > /home/ec2-user/test-results.txt
+          aws s3 ls s3://${ProtectedBucket1} >> /home/ec2-user/test-results.txt 2>&1
+          aws s3 ls s3://${ProtectedBucket2} >> /home/ec2-user/test-results.txt 2>&1
+          # Test ping to Primary EC2 instances
+          echo "Testing network connectivity to Primary EC2 instances..." >> /home/ec2-user/test-results.txt
+          ping -c 4 ${PrimaryEC2Instance1.PrivateIp} >> /home/ec2-user/test-results.txt 2>&1
+          ping -c 4 ${PrimaryEC2Instance2.PrivateIp} >> /home/ec2-user/test-results.txt 2>&1
+      Tags:
+        - Key: Name
+          Value: Secondary-EC2
+
+Outputs:
+  PrimaryEC2Instance1Id:
+    Description: ID of the first EC2 instance in the Primary VPC
+    Value: !Ref PrimaryEC2Instance1
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimaryEC2Instance1Id"
+
+  PrimaryEC2Instance1PrivateIP:
+    Description: Private IP of the first EC2 instance in the Primary VPC
+    Value: !GetAtt PrimaryEC2Instance1.PrivateIp
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimaryEC2Instance1PrivateIP"
+
+  PrimaryEC2Instance2Id:
+    Description: ID of the second EC2 instance in the Primary VPC
+    Value: !Ref PrimaryEC2Instance2
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimaryEC2Instance2Id"
+
+  PrimaryEC2Instance2PrivateIP:
+    Description: Private IP of the second EC2 instance in the Primary VPC
+    Value: !GetAtt PrimaryEC2Instance2.PrivateIp
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimaryEC2Instance2PrivateIP"
+
+  SecondaryEC2InstanceId:
+    Description: ID of the EC2 instance in the Secondary VPC
+    Value: !Ref SecondaryEC2Instance
+    Export:
+      Name: !Sub "${AWS::StackName}-SecondaryEC2InstanceId"
+
+  SecondaryEC2InstancePublicIP:
+    Description: Public IP of the EC2 instance in the Secondary VPC
+    Value: !GetAtt SecondaryEC2Instance.PublicIp
+    Export:
+      Name: !Sub "${AWS::StackName}-SecondaryEC2InstancePublicIP"
+
+  ProtectedBucket1Name:
+    Description: Name of the first protected S3 bucket
+    Value: !Ref ProtectedBucket1
+    Export:
+      Name: !Sub "${AWS::StackName}-ProtectedBucket1Name"
+
+  ProtectedBucket2Name:
+    Description: Name of the second protected S3 bucket
+    Value: !Ref ProtectedBucket2
+    Export:
+      Name: !Sub "${AWS::StackName}-ProtectedBucket2Name"

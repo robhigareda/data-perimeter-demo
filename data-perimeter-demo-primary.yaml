@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Data Perimeter Demo - Primary Stack'
+
+Parameters:
+  OrganizationId:
+    Type: String
+    Description: AWS Organization ID
+    Default: o-xxxxxxxxxx
+
+  TemplateBucketName:
+    Type: String
+    Description: Name of the S3 bucket containing the nested stack templates
+
+Resources:
+  # Base Infrastructure Stack
+  BaseInfrastructureStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://${TemplateBucketName}.s3.amazonaws.com/data-perimeter-demo-part1.yaml
+      Parameters:
+        OrganizationId: !Ref OrganizationId
+      TimeoutInMinutes: 30
+
+  # EC2 Instances and S3 Buckets Stack
+  EC2AndS3Stack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: BaseInfrastructureStack
+    Properties:
+      TemplateURL: !Sub https://${TemplateBucketName}.s3.amazonaws.com/data-perimeter-demo-part2.yaml
+      Parameters:
+        PrimaryVPCId: !GetAtt BaseInfrastructureStack.Outputs.PrimaryVPCId
+        PrimaryVPCCidr: !GetAtt BaseInfrastructureStack.Outputs.PrimaryVPCCidr
+        PrimaryPrivateSubnet1Id: !GetAtt BaseInfrastructureStack.Outputs.PrimaryPrivateSubnet1Id
+        PrimaryPrivateSubnet2Id: !GetAtt BaseInfrastructureStack.Outputs.PrimaryPrivateSubnet2Id
+        SecondaryVPCId: !GetAtt BaseInfrastructureStack.Outputs.SecondaryVPCId
+        SecondaryVPCCidr: !GetAtt BaseInfrastructureStack.Outputs.SecondaryVPCCidr
+        SecondaryPublicSubnetId: !GetAtt BaseInfrastructureStack.Outputs.SecondaryPublicSubnetId
+      TimeoutInMinutes: 30
+
+  # Data Perimeter Controls Stack
+  DataPerimeterControlsStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: EC2AndS3Stack
+    Properties:
+      TemplateURL: !Sub https://${TemplateBucketName}.s3.amazonaws.com/data-perimeter-demo-part3.yaml
+      Parameters:
+        OrganizationId: !Ref OrganizationId
+        PrimaryVPCId: !GetAtt BaseInfrastructureStack.Outputs.PrimaryVPCId
+        PrimaryVPCCidr: !GetAtt BaseInfrastructureStack.Outputs.PrimaryVPCCidr
+        PrimaryPrivateSubnet1Id: !GetAtt BaseInfrastructureStack.Outputs.PrimaryPrivateSubnet1Id
+        PrimaryPrivateSubnet2Id: !GetAtt BaseInfrastructureStack.Outputs.PrimaryPrivateSubnet2Id
+        PrimaryPrivateRouteTableId: !GetAtt BaseInfrastructureStack.Outputs.PrimaryPrivateRouteTableId
+        SecondaryVPCId: !GetAtt BaseInfrastructureStack.Outputs.SecondaryVPCId
+      TimeoutInMinutes: 30
+
+  # Cross-Account Access Role for RCP Commands
+  RCPAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: DataPerimeterRCPAccessRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: "*"
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                "aws:PrincipalOrgID": !Ref OrganizationId
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+      Path: /
+      Description: Role for cross-account access to CloudFormation outputs for RCP commands
+
+Outputs:
+  PrimaryVPCId:
+    Description: ID of the Primary VPC
+    Value: !GetAtt BaseInfrastructureStack.Outputs.PrimaryVPCId
+
+  SecondaryVPCId:
+    Description: ID of the Secondary VPC
+    Value: !GetAtt BaseInfrastructureStack.Outputs.SecondaryVPCId
+
+  PrimaryEC2Instance1Id:
+    Description: ID of the first EC2 instance in the Primary VPC
+    Value: !GetAtt EC2AndS3Stack.Outputs.PrimaryEC2Instance1Id
+
+  PrimaryEC2Instance2Id:
+    Description: ID of the second EC2 instance in the Primary VPC
+    Value: !GetAtt EC2AndS3Stack.Outputs.PrimaryEC2Instance2Id
+
+  SecondaryEC2InstanceId:
+    Description: ID of the EC2 instance in the Secondary VPC
+    Value: !GetAtt EC2AndS3Stack.Outputs.SecondaryEC2InstanceId
+
+  ProtectedBucket1Name:
+    Description: Name of the first protected S3 bucket
+    Value: !GetAtt EC2AndS3Stack.Outputs.ProtectedBucket1Name
+
+  ProtectedBucket2Name:
+    Description: Name of the second protected S3 bucket
+    Value: !GetAtt EC2AndS3Stack.Outputs.ProtectedBucket2Name
+
+  S3VpcEndpointId:
+    Description: ID of the S3 VPC endpoint
+    Value: !GetAtt DataPerimeterControlsStack.Outputs.S3VpcEndpointId
+    
+  RCPAccessRoleARN:
+    Description: ARN of the cross-account access role for RCP commands
+    Value: !GetAtt RCPAccessRole.Arn

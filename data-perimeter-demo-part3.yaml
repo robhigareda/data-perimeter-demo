@@ -1,0 +1,489 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Data Perimeter Demo - Part 3: Data Perimeter Controls'
+
+Parameters:
+  OrganizationId:
+    Type: String
+    Description: AWS Organization ID
+    
+  # Parameters passed from the first stack
+  PrimaryVPCId:
+    Type: String
+    Description: ID of the Primary VPC
+  
+  PrimaryVPCCidr:
+    Type: String
+    Description: CIDR block of the Primary VPC
+  
+  PrimaryPrivateSubnet1Id:
+    Type: String
+    Description: ID of the first private subnet in the Primary VPC
+  
+  PrimaryPrivateSubnet2Id:
+    Type: String
+    Description: ID of the second private subnet in the Primary VPC
+  
+  PrimaryPrivateRouteTableId:
+    Type: String
+    Description: ID of the private route table in the Primary VPC
+    
+  SecondaryVPCId:
+    Type: String
+    Description: ID of the Secondary VPC
+
+Resources:
+  #############################################
+  # VPC ENDPOINTS
+  #############################################
+  
+  # Security group for VPC endpoints
+  VpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VPC endpoints
+      VpcId: !Ref PrimaryVPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref PrimaryVPCCidr
+
+  # S3 Gateway Endpoint
+  S3VpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref PrimaryVPCId
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrimaryPrivateRouteTableId
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: '*'
+            Resource: '*'
+            Principal: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalOrgID: !Ref OrganizationId
+              StringNotEquals:
+                aws:SourceVpc: !Ref SecondaryVPCId
+
+  # DynamoDB Gateway Endpoint
+  DynamoDBVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref PrimaryVPCId
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrimaryPrivateRouteTableId
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: '*'
+            Resource: '*'
+            Principal: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalOrgID: !Ref OrganizationId
+              StringNotEquals:
+                aws:SourceVpc: !Ref SecondaryVPCId
+
+  # SSM Interface Endpoint
+  SsmVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref PrimaryVPCId
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssm
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PrimaryPrivateSubnet1Id
+        - !Ref PrimaryPrivateSubnet2Id
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+      PrivateDnsEnabled: true
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: '*'
+            Resource: '*'
+            Principal: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalOrgID: !Ref OrganizationId
+              StringNotEquals:
+                aws:SourceVpc: !Ref SecondaryVPCId
+
+  # EC2 Interface Endpoint
+  Ec2VpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref PrimaryVPCId
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ec2
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PrimaryPrivateSubnet1Id
+        - !Ref PrimaryPrivateSubnet2Id
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+      PrivateDnsEnabled: true
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: '*'
+            Resource: '*'
+            Principal: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalOrgID: !Ref OrganizationId
+              StringNotEquals:
+                aws:SourceVpc: !Ref SecondaryVPCId
+
+  # EC2 Messages Interface Endpoint (required for Session Manager)
+  Ec2MessagesVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref PrimaryVPCId
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ec2messages
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PrimaryPrivateSubnet1Id
+        - !Ref PrimaryPrivateSubnet2Id
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+      PrivateDnsEnabled: true
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: '*'
+            Resource: '*'
+            Principal: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalOrgID: !Ref OrganizationId
+              StringNotEquals:
+                aws:SourceVpc: !Ref SecondaryVPCId
+
+  # SSM Messages Interface Endpoint (required for Session Manager)
+  SsmMessagesVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref PrimaryVPCId
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssmmessages
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PrimaryPrivateSubnet1Id
+        - !Ref PrimaryPrivateSubnet2Id
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+      PrivateDnsEnabled: true
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: '*'
+            Resource: '*'
+            Principal: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalOrgID: !Ref OrganizationId
+              StringNotEquals:
+                aws:SourceVpc: !Ref SecondaryVPCId
+      VpcId: !Ref PrimaryVPCId
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PrimaryPrivateSubnet1Id
+        - !Ref PrimaryPrivateSubnet2Id
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+      PrivateDnsEnabled: true
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: '*'
+            Resource: '*'
+            Principal: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalOrgID: !Ref OrganizationId
+              StringNotEquals:
+                aws:SourceVpc: !Ref SecondaryVPCId
+
+  #############################################
+  # NETWORK CONTROLS
+  #############################################
+  
+  # Network ACL to restrict outbound traffic
+  PrivateNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref PrimaryVPCId
+      Tags:
+        - Key: Name
+          Value: private-network-acl
+
+  # Associate Network ACL with private subnets
+  PrivateSubnet1NetworkAclAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PrimaryPrivateSubnet1Id
+      NetworkAclId: !Ref PrivateNetworkAcl
+
+  PrivateSubnet2NetworkAclAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PrimaryPrivateSubnet2Id
+      NetworkAclId: !Ref PrivateNetworkAcl
+
+  # Allow all inbound traffic within VPC
+  InboundVpcTrafficRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl
+      RuleNumber: 100
+      Protocol: -1
+      RuleAction: allow
+      Egress: false
+      CidrBlock: !Ref PrimaryVPCCidr
+      PortRange:
+        From: 0
+        To: 65535
+
+  # Allow all outbound traffic within VPC
+  OutboundVpcTrafficRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl
+      RuleNumber: 100
+      Protocol: -1
+      RuleAction: allow
+      Egress: true
+      CidrBlock: !Ref PrimaryVPCCidr
+      PortRange:
+        From: 0
+        To: 65535
+
+  # Allow outbound HTTPS to AWS services via VPC endpoints
+  OutboundHttpsTrafficRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl
+      RuleNumber: 200
+      Protocol: 6
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: 443
+        To: 443
+
+  # Deny traffic from Secondary VPC
+  DenySecondaryVpcTrafficRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl
+      RuleNumber: 800
+      Protocol: -1
+      RuleAction: deny
+      Egress: false
+      CidrBlock: 172.16.0.0/16  # Secondary VPC CIDR
+      PortRange:
+        From: 0
+        To: 65535
+
+  # Deny all other outbound traffic
+  DenyAllOutboundTrafficRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl
+      RuleNumber: 900
+      Protocol: -1
+      RuleAction: deny
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: 0
+        To: 65535
+
+  #############################################
+  # MONITORING
+  #############################################
+  
+  # SNS topic for security alerts
+  SecurityAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: Security Alerts
+      TopicName: security-alerts
+
+  # CloudWatch alarm for unauthorized API calls
+  UnauthorizedApiCallsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: unauthorized-api-calls
+      AlarmDescription: This metric monitors unauthorized API calls
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      MetricName: UnauthorizedAttemptCount
+      Namespace: AWS/CloudTrail
+      Period: 300
+      Statistic: Sum
+      Threshold: 1
+      AlarmActions:
+        - !Ref SecurityAlertsTopic
+      Dimensions:
+        - Name: EventName
+          Value: ConsoleLogin
+
+  # S3 bucket for CloudTrail logs
+  CloudTrailLogsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "data-perimeter-cloudtrail-logs-${AWS::Region}-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # S3 bucket policy for CloudTrail
+  CloudTrailLogsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CloudTrailLogsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AWSCloudTrailAclCheck
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt CloudTrailLogsBucket.Arn
+          - Sid: AWSCloudTrailWrite
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub ${CloudTrailLogsBucket.Arn}/AWSLogs/*
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+
+  # CloudTrail for monitoring API calls
+  DataPerimeterTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn:
+      - CloudTrailLogsBucketPolicy
+    Properties:
+      TrailName: data-perimeter-trail
+      S3BucketName: !Ref CloudTrailLogsBucket
+      IsLogging: true
+      IsMultiRegionTrail: true
+      EnableLogFileValidation: true
+      IncludeGlobalServiceEvents: true
+      EventSelectors:
+        - ReadWriteType: All
+          IncludeManagementEvents: true
+
+  # CloudWatch Log Group for CloudTrail
+  CloudTrailLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/cloudtrail/data-perimeter-trail
+      RetentionInDays: 90
+
+  # IAM Role for CloudTrail to CloudWatch Logs
+  CloudTrailToCloudWatchLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+Outputs:
+  VpcEndpointSecurityGroupId:
+    Description: ID of the VPC endpoint security group
+    Value: !Ref VpcEndpointSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcEndpointSecurityGroupId"
+
+  S3VpcEndpointId:
+    Description: ID of the S3 VPC endpoint
+    Value: !Ref S3VpcEndpoint
+    Export:
+      Name: !Sub "${AWS::StackName}-S3VpcEndpointId"
+
+  DynamoDBVpcEndpointId:
+    Description: ID of the DynamoDB VPC endpoint
+    Value: !Ref DynamoDBVpcEndpoint
+    Export:
+      Name: !Sub "${AWS::StackName}-DynamoDBVpcEndpointId"
+
+  SsmVpcEndpointId:
+    Description: ID of the SSM VPC endpoint
+    Value: !Ref SsmVpcEndpoint
+    Export:
+      Name: !Sub "${AWS::StackName}-SsmVpcEndpointId"
+
+  Ec2VpcEndpointId:
+    Description: ID of the EC2 VPC endpoint
+    Value: !Ref Ec2VpcEndpoint
+    Export:
+      Name: !Sub "${AWS::StackName}-Ec2VpcEndpointId"
+
+  LogsVpcEndpointId:
+    Description: ID of the CloudWatch Logs VPC endpoint
+    Value: !Ref LogsVpcEndpoint
+    Export:
+      Name: !Sub "${AWS::StackName}-LogsVpcEndpointId"
+      
+  Ec2MessagesVpcEndpointId:
+    Description: ID of the EC2 Messages VPC endpoint
+    Value: !Ref Ec2MessagesVpcEndpoint
+    Export:
+      Name: !Sub "${AWS::StackName}-Ec2MessagesVpcEndpointId"
+      
+  SsmMessagesVpcEndpointId:
+    Description: ID of the SSM Messages VPC endpoint
+    Value: !Ref SsmMessagesVpcEndpoint
+    Export:
+      Name: !Sub "${AWS::StackName}-SsmMessagesVpcEndpointId"
+
+  PrivateNetworkAclId:
+    Description: ID of the private network ACL
+    Value: !Ref PrivateNetworkAcl
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateNetworkAclId"
+
+  SecurityAlertsTopicArn:
+    Description: ARN of the SNS topic for security alerts
+    Value: !Ref SecurityAlertsTopic
+    Export:
+      Name: !Sub "${AWS::StackName}-SecurityAlertsTopicArn"
+
+  DataPerimeterTrailArn:
+    Description: ARN of the CloudTrail
+    Value: !GetAtt DataPerimeterTrail.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-DataPerimeterTrailArn"

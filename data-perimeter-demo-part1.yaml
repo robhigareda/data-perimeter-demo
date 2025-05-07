@@ -1,0 +1,306 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Data Perimeter Demo - Part 1: Base Infrastructure'
+
+Parameters:
+  OrganizationId:
+    Type: String
+    Description: AWS Organization ID
+
+Resources:
+  #############################################
+  # PRIMARY VPC - Protected by Data Perimeter
+  #############################################
+  PrimaryVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: PrimaryVPC
+
+  # Internet Gateway for Primary VPC
+  PrimaryInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: PrimaryIGW
+
+  PrimaryVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref PrimaryVPC
+      InternetGatewayId: !Ref PrimaryInternetGateway
+
+  # Public Subnets for Primary VPC
+  PrimaryPublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PrimaryVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: Primary-Public-1
+
+  PrimaryPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PrimaryVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: Primary-Public-2
+
+  # Private Subnets for Primary VPC
+  PrimaryPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PrimaryVPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: Primary-Private-1
+
+  PrimaryPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PrimaryVPC
+      CidrBlock: 10.0.4.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: Primary-Private-2
+
+  # Route Tables for Primary VPC
+  PrimaryPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref PrimaryVPC
+      Tags:
+        - Key: Name
+          Value: Primary-Public-RT
+
+  PrimaryPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref PrimaryVPC
+      Tags:
+        - Key: Name
+          Value: Primary-Private-RT
+
+  # Routes for Primary VPC
+  PrimaryPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: PrimaryVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PrimaryPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref PrimaryInternetGateway
+
+  # Route Table Associations for Primary VPC
+  PrimaryPublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrimaryPublicSubnet1
+      RouteTableId: !Ref PrimaryPublicRouteTable
+
+  PrimaryPublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrimaryPublicSubnet2
+      RouteTableId: !Ref PrimaryPublicRouteTable
+
+  PrimaryPrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrimaryPrivateSubnet1
+      RouteTableId: !Ref PrimaryPrivateRouteTable
+
+  PrimaryPrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrimaryPrivateSubnet2
+      RouteTableId: !Ref PrimaryPrivateRouteTable
+
+  # NAT Gateway for Primary VPC (to enable internet access from private subnets)
+  PrimaryEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: PrimaryVPCGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  PrimaryNATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt PrimaryEIP.AllocationId
+      SubnetId: !Ref PrimaryPublicSubnet1
+      Tags:
+        - Key: Name
+          Value: Primary-NAT-Gateway
+
+  # Route from private subnet to NAT Gateway
+  PrimaryPrivateRouteToNAT:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrimaryPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref PrimaryNATGateway
+
+  #############################################
+  # SECONDARY VPC - Outside Data Perimeter
+  #############################################
+  SecondaryVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 172.16.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: SecondaryVPC
+
+  # Internet Gateway for Secondary VPC
+  SecondaryInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: SecondaryIGW
+
+  SecondaryVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref SecondaryVPC
+      InternetGatewayId: !Ref SecondaryInternetGateway
+
+  # Public Subnet for Secondary VPC
+  SecondaryPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecondaryVPC
+      CidrBlock: 172.16.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: Secondary-Public
+
+  # Route Table for Secondary VPC
+  SecondaryRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecondaryVPC
+      Tags:
+        - Key: Name
+          Value: Secondary-RT
+
+  # Routes for Secondary VPC
+  SecondaryPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: SecondaryVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref SecondaryRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref SecondaryInternetGateway
+
+  # Route Table Association for Secondary VPC
+  SecondarySubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SecondaryPublicSubnet
+      RouteTableId: !Ref SecondaryRouteTable
+
+  #############################################
+  # VPC PEERING CONNECTION
+  #############################################
+  VPCPeeringConnection:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      VpcId: !Ref PrimaryVPC
+      PeerVpcId: !Ref SecondaryVPC
+      Tags:
+        - Key: Name
+          Value: Primary-Secondary-Peering
+
+  # Routes for VPC Peering
+  PrimaryToSecondaryRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrimaryPrivateRouteTable
+      DestinationCidrBlock: 172.16.0.0/16
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+  SecondaryToPrimaryRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref SecondaryRouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+Outputs:
+  PrimaryVPCId:
+    Description: ID of the Primary VPC
+    Value: !Ref PrimaryVPC
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimaryVPCId"
+
+  PrimaryVPCCidr:
+    Description: CIDR block of the Primary VPC
+    Value: !GetAtt PrimaryVPC.CidrBlock
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimaryVPCCidr"
+
+  PrimaryPrivateSubnet1Id:
+    Description: ID of the first private subnet in the Primary VPC
+    Value: !Ref PrimaryPrivateSubnet1
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimaryPrivateSubnet1Id"
+
+  PrimaryPrivateSubnet2Id:
+    Description: ID of the second private subnet in the Primary VPC
+    Value: !Ref PrimaryPrivateSubnet2
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimaryPrivateSubnet2Id"
+
+  PrimaryPublicSubnet1Id:
+    Description: ID of the first public subnet in the Primary VPC
+    Value: !Ref PrimaryPublicSubnet1
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimaryPublicSubnet1Id"
+
+  PrimaryPrivateRouteTableId:
+    Description: ID of the private route table in the Primary VPC
+    Value: !Ref PrimaryPrivateRouteTable
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimaryPrivateRouteTableId"
+
+  SecondaryVPCId:
+    Description: ID of the Secondary VPC
+    Value: !Ref SecondaryVPC
+    Export:
+      Name: !Sub "${AWS::StackName}-SecondaryVPCId"
+
+  SecondaryVPCCidr:
+    Description: CIDR block of the Secondary VPC
+    Value: !GetAtt SecondaryVPC.CidrBlock
+    Export:
+      Name: !Sub "${AWS::StackName}-SecondaryVPCCidr"
+
+  SecondaryPublicSubnetId:
+    Description: ID of the public subnet in the Secondary VPC
+    Value: !Ref SecondaryPublicSubnet
+    Export:
+      Name: !Sub "${AWS::StackName}-SecondaryPublicSubnetId"
+
+  VPCPeeringConnectionId:
+    Description: ID of the VPC Peering Connection
+    Value: !Ref VPCPeeringConnection
+    Export:
+      Name: !Sub "${AWS::StackName}-VPCPeeringConnectionId"
