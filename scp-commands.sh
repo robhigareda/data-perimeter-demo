@@ -3,10 +3,10 @@
 # Run this script after deploying the CloudFormation stacks
 
 # Your actual Organization ID
-ORGANIZATION_ID="o-l3dcat5je9"
+ORGANIZATION_ID="o-xxxxxxx"
 
 # Your actual Primary VPC ID (from CloudFormation output)
-PRIMARY_VPC_ID="vpc-05064b3868f3f5366"
+PRIMARY_VPC_ID="vpc-xxxxxxxxxxx"
 
 # Function to check if a policy type is enabled
 check_policy_type_enabled() {
