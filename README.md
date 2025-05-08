@@ -1,6 +1,6 @@
 # AWS Data Perimeter Demo Solution
 
-This repository contains a complete AWS data perimeter solution that demonstrates how to restrict access to AWS services based on network origin, even within the same AWS account and organization. This is a personal project and an official AWS solution or offering. This is just something I am playing with to see if it's useful.
+This repository contains a complete AWS data perimeter solution that demonstrates how to restrict access to AWS services based on network origin, even within the same AWS account and organization. This is a personal project and NOT an official AWS solution or offering. This is just something I am playing with to see if it's useful.
 
 Every bit of this demo solution was created using the Q CLI chat feature. Even this README file (with some human edits) So not only does this showcase the power of AWS for data protection and perimeter implementation but it also shows with a little time, testing and a lot of revisions that you can create a full demo environment with Q cli. 
 
